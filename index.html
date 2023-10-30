@@ -1,0 +1,36 @@
+<!DOCTYPE HTML>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/jsoneditor/9.10.2/jsoneditor.css" rel="stylesheet" type="text/css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jsoneditor/9.10.2/jsoneditor.min.js"></script>
+</head>
+<body>
+    <div style="display: flex; justify-content: center;">
+        <div id="jsoneditor" style="width: 800px; height: 800px;"></div>
+    </div>
+<script>
+    // create the editor
+    var container = document.getElementById("jsoneditor");
+    var editor = new JSONEditor(container);
+
+    // set json
+    async function setJSON () {
+        const response = await fetch('http://localhost:8000/resumes');
+        const data = await response.json()
+        editor.set(data);
+    }
+
+    // get json
+    function getJSON() {
+        var json = editor.get();
+        alert(JSON.stringify(json, null, 2));
+    }
+
+    document.addEventListener('DOMContentLoaded', function(event) {
+        setJSON()
+    });
+</script>
+</body>
+</html>

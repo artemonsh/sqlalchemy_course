@@ -1,0 +1,3 @@
+[tool.isort]
+profile = "hug"
+src_paths = ["src"]

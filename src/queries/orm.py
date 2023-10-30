@@ -1,7 +1,13 @@
-from sqlalchemy import Integer, and_, text, insert, inspect, select, func, cast
-from sqlalchemy.orm import aliased
-from database import sync_engine, async_engine, session_factory, async_session_factory, Base
-from models import WorkersOrm, ResumesOrm, Workload
+from sqlalchemy import Integer, and_, cast, func, insert, inspect, or_, select, text
+from sqlalchemy.orm import aliased, contains_eager, joinedload, selectinload
+
+from database import Base, async_engine, async_session_factory, session_factory, sync_engine
+from models import ResumesOrm, VacanciesOrm, WorkersOrm, Workload
+from schemas import (
+    ResumesRelVacanciesRepliedDTO,
+    ResumesRelVacanciesRepliedWithoutVacancyCompensationDTO,
+    WorkersRelDTO,
+)
 
 
 class SyncORM:
@@ -29,7 +35,7 @@ class SyncORM:
             query = select(WorkersOrm)
             result = session.execute(query)
             workers = result.scalars().all()
-            print(f"{workers=}")
+            # print(f"{workers=}")
 
     @staticmethod
     def update_worker(worker_id: int = 2, new_username: str = "Misha"):
@@ -157,7 +163,151 @@ class SyncORM:
 
             res = session.execute(query)
             result = res.all()
-            print(f"{len(result)=}. {result=}")
+            # print(f"{len(result)=}. {result=}")
+
+    @staticmethod
+    def select_workers_with_lazy_relationship():
+        with session_factory() as session:
+            query = (
+                select(WorkersOrm)
+            )
+            
+            res = session.execute(query)
+            result = res.scalars().all()
+
+            worker_1_resumes = result[0].resumes
+            print(worker_1_resumes)
+            
+            worker_2_resumes = result[1].resumes
+            print(worker_2_resumes)
+
+    @staticmethod
+    def select_workers_with_joined_relationship():
+        with session_factory() as session:
+            query = (
+                select(WorkersOrm)
+                .options(joinedload(WorkersOrm.resumes))
+            )
+            
+            res = session.execute(query)
+            result = res.unique().scalars().all()
+
+            worker_1_resumes = result[0].resumes
+            print(worker_1_resumes)
+            
+            worker_2_resumes = result[1].resumes
+            print(worker_2_resumes)
+
+    @staticmethod
+    def select_workers_with_selectin_relationship():
+        with session_factory() as session:
+            query = (
+                select(WorkersOrm)
+                .options(selectinload(WorkersOrm.resumes))
+            )
+            
+            res = session.execute(query)
+            result = res.scalars().all()
+
+            worker_1_resumes = result[0].resumes
+            # print(worker_1_resumes)
+            
+            worker_2_resumes = result[1].resumes
+            # print(worker_2_resumes)
+
+    @staticmethod
+    def select_workers_with_condition_relationship():
+        with session_factory() as session:
+            query = (
+                select(WorkersOrm)
+                .options(selectinload(WorkersOrm.resumes_parttime))
+            )
+
+            res = session.execute(query)
+            result = res.scalars().all()
+            print(result)
+
+    @staticmethod
+    def select_workers_with_condition_relationship_contains_eager():
+        with session_factory() as session:
+            query = (
+                select(WorkersOrm)
+                .join(WorkersOrm.resumes)
+                .options(contains_eager(WorkersOrm.resumes))
+                .filter(ResumesOrm.workload == 'parttime')
+            )
+
+            res = session.execute(query)
+            result = res.unique().scalars().all()
+            print(result)
+
+    @staticmethod
+    def select_workers_with_relationship_contains_eager_with_limit():
+        # Горячо рекомендую ознакомиться: https://stackoverflow.com/a/72298903/22259413 
+        with session_factory() as session:
+            subq = (
+                select(ResumesOrm.id.label("parttime_resume_id"))
+                .filter(ResumesOrm.worker_id == WorkersOrm.id)
+                .order_by(WorkersOrm.id.desc())
+                .limit(1)
+                .scalar_subquery()
+                .correlate(WorkersOrm)
+            )
+
+            query = (
+                select(WorkersOrm)
+                .join(ResumesOrm, ResumesOrm.id.in_(subq))
+                .options(contains_eager(WorkersOrm.resumes))
+            )
+
+            res = session.execute(query)
+            result = res.unique().scalars().all()
+            print(result)
+
+    @staticmethod
+    def convert_workers_to_dto():
+        with session_factory() as session:
+            query = (
+                select(WorkersOrm)
+                .options(selectinload(WorkersOrm.resumes))
+                .limit(2)
+            )
+
+            res = session.execute(query)
+            result_orm = res.scalars().all()
+            print(f"{result_orm=}")
+            result_dto = [WorkersRelDTO.model_validate(row, from_attributes=True) for row in result_orm]
+            print(f"{result_dto=}")
+            return result_dto
+        
+    @staticmethod
+    def add_vacancies_and_replies():
+        with session_factory() as session:
+            new_vacancy = VacanciesOrm(title="Python разработчик", compensation=100000)
+            resume_1 = session.get(ResumesOrm, 1)
+            resume_2 = session.get(ResumesOrm, 2)
+            resume_1.vacancies_replied.append(new_vacancy)
+            resume_2.vacancies_replied.append(new_vacancy)
+            session.commit()
+
+    @staticmethod
+    def select_resumes_with_all_relationships():
+        with session_factory() as session:
+            query = (
+                select(ResumesOrm)
+                .options(joinedload(ResumesOrm.worker))
+                .options(selectinload(ResumesOrm.vacancies_replied).load_only(VacanciesOrm.title))
+            )
+
+            res = session.execute(query)
+            result_orm = res.unique().scalars().all()
+            print(f"{result_orm=}")
+            # Обратите внимание, что созданная в видео модель содержала лишний столбец compensation
+            # И так как он есть в схеме ResumesRelVacanciesRepliedDTO, столбец compensation был вызван
+            # Алхимией через ленивую загрузку. В асинхронном варианте это приводило к краху программы
+            result_dto = [ResumesRelVacanciesRepliedWithoutVacancyCompensationDTO.model_validate(row, from_attributes=True) for row in result_orm]
+            print(f"{result_dto=}")
+            return result_dto
 
 
 class AsyncORM:
@@ -262,7 +412,7 @@ class AsyncORM:
             await session.commit()
 
     @staticmethod
-    async def join_cte_subquery_window_func(like_language: str = "Python"):
+    async def join_cte_subquery_window_func():
         """
         WITH helper2 AS (
             SELECT *, compensation-avg_workload_compensation AS compensation_diff
@@ -310,3 +460,150 @@ class AsyncORM:
             res = await session.execute(query)
             result = res.all()
             print(f"{len(result)=}. {result=}")
+
+    @staticmethod
+    async def select_workers_with_lazy_relationship():
+        async with async_session_factory() as session:
+            query = (
+                select(WorkersOrm)
+            )
+            
+            res = await session.execute(query)
+            result = res.scalars().all()
+
+            # worker_1_resumes = result[0].resumes  # -> Приведет к ошибке
+            # Нельзя использовать ленивую подгрузку в асинхронном варианте!
+
+            # Ошибка: sqlalchemy.exc.MissingGreenlet: greenlet_spawn has not been called; can't call await_only() here. 
+            # Was IO attempted in an unexpected place? (Background on this error at: https://sqlalche.me/e/20/xd2s)
+            
+
+    @staticmethod
+    async def select_workers_with_joined_relationship():
+        async with async_session_factory() as session:
+            query = (
+                select(WorkersOrm)
+                .options(joinedload(WorkersOrm.resumes))
+            )
+            
+            res = await session.execute(query)
+            result = res.unique().scalars().all()
+
+            worker_1_resumes = result[0].resumes
+            # print(worker_1_resumes)
+            
+            worker_2_resumes = result[1].resumes
+            # print(worker_2_resumes)
+
+    @staticmethod
+    async def select_workers_with_selectin_relationship():
+        async with async_session_factory() as session:
+            query = (
+                select(WorkersOrm)
+                .options(selectinload(WorkersOrm.resumes))
+            )
+            
+            res = await session.execute(query)
+            result = res.scalars().all()
+
+            worker_1_resumes = result[0].resumes
+            # print(worker_1_resumes)
+            
+            worker_2_resumes = result[1].resumes
+            # print(worker_2_resumes)
+
+    @staticmethod
+    async def select_workers_with_condition_relationship():
+        async with async_session_factory() as session:
+            query = (
+                select(WorkersOrm)
+                .options(selectinload(WorkersOrm.resumes_parttime))
+            )
+
+            res = await session.execute(query)
+            result = res.scalars().all()
+            print(result)
+
+    @staticmethod
+    async def select_workers_with_condition_relationship_contains_eager():
+        async with async_session_factory() as session:
+            query = (
+                select(WorkersOrm)
+                .join(WorkersOrm.resumes)
+                .options(contains_eager(WorkersOrm.resumes))
+                .filter(ResumesOrm.workload == 'parttime')
+            )
+
+            res = await session.execute(query)
+            result = res.unique().scalars().all()
+            print(result)
+
+    @staticmethod
+    async def select_workers_with_relationship_contains_eager_with_limit():
+        # Горячо рекомендую ознакомиться: https://stackoverflow.com/a/72298903/22259413 
+        async with async_session_factory() as session:
+            subq = (
+                select(ResumesOrm.id.label("parttime_resume_id"))
+                .filter(ResumesOrm.worker_id == WorkersOrm.id)
+                .order_by(WorkersOrm.id.desc())
+                .limit(1)
+                .scalar_subquery()
+                .correlate(WorkersOrm)
+            )
+
+            query = (
+                select(WorkersOrm)
+                .join(ResumesOrm, ResumesOrm.id.in_(subq))
+                .options(contains_eager(WorkersOrm.resumes))
+            )
+
+            res = await session.execute(query)
+            result = res.unique().scalars().all()
+            print(result)
+
+    @staticmethod
+    async def convert_workers_to_dto():
+        async with async_session_factory() as session:
+            query = (
+                select(WorkersOrm)
+                .options(selectinload(WorkersOrm.resumes))
+                .limit(2)
+            )
+
+            res = await session.execute(query)
+            result_orm = res.scalars().all()
+            print(f"{result_orm=}")
+            result_dto = [WorkersRelDTO.model_validate(row, from_attributes=True) for row in result_orm]
+            print(f"{result_dto=}")
+            return result_dto
+        
+    @staticmethod
+    async def add_vacancies_and_replies():
+        async with async_session_factory() as session:
+            new_vacancy = VacanciesOrm(title="Python разработчик", compensation=100000)
+            get_resume_1 = select(ResumesOrm).options(selectinload(ResumesOrm.vacancies_replied)).filter_by(id=1)
+            get_resume_2 = select(ResumesOrm).options(selectinload(ResumesOrm.vacancies_replied)).filter_by(id=2)
+            resume_1 = (await session.execute(get_resume_1)).scalar_one()
+            resume_2 = (await session.execute(get_resume_2)).scalar_one()
+            resume_1.vacancies_replied.append(new_vacancy)
+            resume_2.vacancies_replied.append(new_vacancy)
+            await session.commit()
+
+    @staticmethod
+    async def select_resumes_with_all_relationships():
+        async with async_session_factory() as session:
+            query = (
+                select(ResumesOrm)
+                .options(joinedload(ResumesOrm.worker))
+                .options(selectinload(ResumesOrm.vacancies_replied).load_only(VacanciesOrm.title))
+            )
+
+            res = await session.execute(query)
+            result_orm = res.unique().scalars().all()
+            print(f"{result_orm=}")
+            # Обратите внимание, что созданная в видео модель содержала лишний столбец compensation
+            # И так как он есть в схеме ResumesRelVacanciesRepliedDTO, столбец compensation был вызван
+            # Алхимией через ленивую загрузку. В асинхронном варианте это приводило к краху программы
+            result_dto = [ResumesRelVacanciesRepliedWithoutVacancyCompensationDTO.model_validate(row, from_attributes=True) for row in result_orm]
+            print(f"{result_dto=}")
+            return result_dto

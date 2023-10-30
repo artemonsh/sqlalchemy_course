@@ -1,7 +1,8 @@
-from sqlalchemy import Integer, and_, func, text, insert, select, update
+from sqlalchemy import Integer, and_, func, insert, select, text, update
 from sqlalchemy.orm import aliased
-from database import sync_engine, async_engine
-from models import metadata_obj, workers_table, resumes_table, Workload
+
+from database import async_engine, sync_engine
+from models import Workload, metadata_obj, resumes_table, workers_table
 
 
 def get_123_sync():
@@ -175,6 +176,8 @@ class SyncCore:
             res = conn.execute(query)
             result = res.all()
             print(f"{len(result)=}. {result=}")
+            
+    # Relationships отсутствуют при использовании Table
 
 
 class AsyncCore:
@@ -337,3 +340,5 @@ class AsyncCore:
             res = await conn.execute(query)
             result = res.all()
             print(f"{len(result)=}. {result=}")
+
+    # Relationships отсутствуют при использовании Table
