@@ -4,7 +4,7 @@
 ### [Ссылка на YouTube курс](https://www.youtube.com/playlist?list=PLeLN0qH0-mCXARD_K-USF2wHctxzEVp40)
 
 ### FastAPI  
-<img src="docs/openapi.png" width="425"/> 
+<img src="docs/openapi.png" width="525"/> 
 
 ### Интерактивный просмотр JSON в браузере  
 <img src="docs/jsoneditor.png" width="525"/>
